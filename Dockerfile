@@ -51,7 +51,8 @@ RUN node scripts/build-ssr.js \
  && mkdir -p /out/bin /out/public \
  && cp build/server-ssr.cjs /out/bin/nsbp-ssr-server \
  && cp -R public/. /out/public/ \
- && cp nsbp.lume /out/nsbp.lume
+ && cp nsbp.lume /out/nsbp.lume \
+ && cp -R src /out/src
 
 # ---------------------------------------------------------------------------
 # 2. Fetch the Lume release (static build: runs on alpine/scratch, no glibc).
@@ -59,7 +60,7 @@ RUN node scripts/build-ssr.js \
 #    context; it is used in place of a GitHub download.
 # ---------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM alpine:3.23 AS lume
-ARG LUME_VERSION=v0.11.0
+ARG LUME_VERSION=v0.12.2
 ARG LUME_REPO=erishen/lume
 ARG TARGETARCH
 ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
@@ -120,6 +121,7 @@ RUN sed -i "s#https\?://[a-z0-9.-]*alpinelinux.org/alpine#$APK_MIRROR#g" /etc/ap
 COPY --from=ui    --chown=app:app /out/bin/nsbp-ssr-server ./bin/nsbp-ssr-server
 COPY --from=ui    --chown=app:app /out/public                ./public
 COPY --from=ui    --chown=app:app /out/nsbp.lume             ./nsbp.lume
+COPY --from=ui    --chown=app:app /out/src                   ./src
 COPY --from=lume  --chown=app:app /usr/local/bin/lume        ./bin/lume
 COPY --chown=app:app --chmod=755 docker/entrypoint.sh ./entrypoint.sh
 

@@ -27,6 +27,10 @@
 // 注意: `server{}` 只有 `bind`/`port` 键, 没有 `host` 键 —— 旧版的 `host = "127.0.0.1"`
 //       是静默无效的, 真正生效的绑定由 LUME_BIND / 框架默认决定。
 
+// 访客统计模块(纯数据端点: POST /api/visit 打点, GET /api/visits 汇总,
+// POST /api/visits/reset 清空)。与 specpulse-lume / tnsbp-lume 同款契约。
+import "src/visits.lume" as vis;
+
 let nsbp_sock = env("SSR_SOCK");
 if (nsbp_sock == null) {
   nsbp_sock = "./.data/nsbp-ssr.sock";
@@ -42,6 +46,83 @@ if (nsbp_bind == null) {
 let nsbp_port_s = env("PORT");
 if (nsbp_port_s == null) {
   nsbp_port_s = "10090";
+}
+
+// ── 访客统计配置(与 cicdkit 的 <APP>_VISIT_PIN 约定对应)────────────────────
+// PIN: 设了则 /api/visits 需 ?pin= 匹配才放行(owner-only); 未设 fail closed
+// (403, 不把访客 IP 汇总裸奔给公网)。变量名刻意避开 KEY/TOKEN/SECRET ——
+// Lume env() 对含这些词的变量名按"未设置"处理。
+let nsbp_visit_pin = env("NSBP_VISIT_PIN");
+if (nsbp_visit_pin == null or nsbp_visit_pin == "") { nsbp_visit_pin = ""; }
+
+// 排除名单(自己/运维 IP 不计数): NSBP_VISIT_EXCLUDE_IPS, 逗号分隔,
+// 支持精确 IP 或 CIDR(1.2.3.4 / 10.0.0.0/8 / 100.64.0.0/10)。命中的打点直接
+// 丢弃(不落盘), 已落盘的历史记录在汇总/明细里同样剔除。
+let nsbp_visit_exclude_raw = env("NSBP_VISIT_EXCLUDE_IPS");
+let nsbp_visit_exclude = [];
+if (nsbp_visit_exclude_raw != null) {
+  let raw_parts = split(replace(str(nsbp_visit_exclude_raw), " ", ""), ",");
+  for (let e in raw_parts) {
+    let e2 = trim(str(e));
+    if (e2 != "" and e2 != "null") { nsbp_visit_exclude = push(nsbp_visit_exclude, e2); }
+  }
+}
+
+// 取客户端真实 IP: 只信反代追加的 X-Forwarded-For 最右非空跳, 回退 remote_addr。
+// nginx 用 $proxy_add_x_forwarded_for(追加模式)时, 可信的 $remote_addr 被追加在末尾,
+// 客户端自带的(可伪造)跳在前 —— 故最右非空跳胜出, 最左跳绝不采信。
+func client_ip(req) {
+  let ip = str(get(req, "remote_addr", ""));
+  let xff = str(get(req, "x_forwarded_for", ""));
+  if (xff != "" and xff != "null") {
+    let hops = split(replace(xff, " ", ""), ",");
+    for (let h in hops) {
+      if (trim(h) != "") { ip = trim(h); }
+    }
+  }
+  if (ip == "" or ip == null or ip == "MISSING") { ip = "unknown"; }
+  return ip;
+}
+
+// 取请求头(大小写不敏感): 框架 req.headers 保留原始大小写, 逐 key 比对。
+func header_ci(req, want) {
+  let h = get(req, "headers", {});
+  let lw = lower(str(want));
+  for (let k in h) {
+    if (lower(str(k)) == lw) {
+      return str(get(h, k, ""));
+    }
+  }
+  return "";
+}
+
+// 解析 JSON 请求体为 { ok: <对象>, err: <string|null> }(与 specpulse 同款)。
+func body_of(req) {
+  let body = get(req, "body", null);
+  if (body == null or body == "") {
+    return { ok: null, err: "缺少 body" };
+  }
+  let r = try(() => json(body));
+  if (get(r, "err", null) != null) {
+    return { ok: null, err: "body 不是合法 JSON: " + get(r, "err", "") };
+  }
+  return { ok: r.ok, err: null };
+}
+
+// 访问统计门禁: 未配 PIN → 403(fail closed); 配了则 pin 需匹配 query ?pin= 或头 X-Visit-Pin。
+// 返回体带 status/error(非 err 键): cicdkit 的 fetchVisits 据此判"业务错误/断线",
+// 不当成 0 访问展示。
+func nsbp_visit_gate(req) {
+  if (nsbp_visit_pin == "") {
+    return { status: 403, error: "访客统计 PIN 未配置 (NSBP_VISIT_PIN)" };
+  }
+  let qp = get(req, "query_params", {});
+  let qpin = str(get(qp, "pin", ""));
+  let hpin = replace(header_ci(req, "X-Visit-Pin"), "Bearer ", "");
+  if (qpin == nsbp_visit_pin or hpin == nsbp_visit_pin) {
+    return null;
+  }
+  return { status: 403, error: "访客统计 PIN 错误" };
 }
 
 server {
@@ -61,6 +142,75 @@ server {
 // DSL 原生端点,证明 Lume 引擎本身也在出数据(map → application/json)。
 get "/api/health", (req) => {
   return { ok: true, service: "nsbp-lume", ssr: "react+node", front: "lume/agent-httpd" };
+};
+
+// ── 访客统计(纯数据端点; 供 cicdkit 平台 VisitsBlock 抓取, 应用内不做 UI) ─────
+// POST /api/visit: 前端加载时打点(公开)。body: {path?, referrer?, ua?, visitor?, wd?}
+//   IP 由服务端从反代头/连接端取(不信任客户端传入)。
+post "/api/visit", (req) => {
+  let b = body_of(req);
+  let ok = get(b, "ok", {});
+  if (ok == null) { ok = {}; }
+  // 隐私兜底: referrer 剥掉 query/fragment(分享链接的 ?tk= / 统计 ?pin= 不得落盘)。
+  let referrer = str(get(ok, "referrer", ""));
+  referrer = split(referrer, "?")[0];
+  referrer = split(referrer, "#")[0];
+  let visitor = str(get(ok, "visitor", "anon"));
+  if (visitor == "") { visitor = "anon"; }
+  // 排除名单(自己/运维 IP)前置丢弃: 不落盘、不计数, 对访客统计完全不可见。
+  let ip = client_ip(req);
+  if (vis.ip_excluded(ip, nsbp_visit_exclude)) {
+    return { ok: { recorded: false, excluded: true }, err: null };
+  }
+  // 60s 去重: 同 visitor 灌水直接丢弃(防公开端点被脚本刷爆、失真统计)。
+  let since_dupe = now() - 60;
+  if (vis.visit_dupe_since(visitor, since_dupe)) {
+    return { ok: { recorded: false, deduped: true }, err: null };
+  }
+  let v = {
+    ip: ip,
+    path: str(get(ok, "path", "/")),
+    referrer: referrer,
+    ua: str(get(ok, "ua", "")),
+    visitor: visitor,
+    wd: str(get(ok, "wd", "")),
+    created: now(),
+  };
+  let r = vis.record_visit(v);
+  if (get(r, "err", null) != null) {
+    return { err: get(r, "err", "记录访问失败") };
+  }
+  return { ok: { recorded: true }, err: null };
+};
+
+// GET /api/visits: 汇总(总 PV/今日/独立访客/近 14 天/最近明细), PIN 门禁(owner-only)。
+//   与 specpulse-lume / tnsbp-lume / lume-crm 同款契约; cicdkit 平台代理时带 ?pin=<NSBP_VISIT_PIN>。
+get "/api/visits", (req) => {
+  let gate = nsbp_visit_gate(req);
+  if (gate != null) {
+    return gate;
+  }
+  let r = vis.visits_summary(nsbp_visit_exclude);
+  if (get(r, "err", null) != null) {
+    return { status: 500, error: str(get(r, "err", "统计失败")) };
+  }
+  // 平铺返回(cicdkit fetchVisits 把整个 body 解码后交给前端 VisitsBlock 读 total/uv/days/recent,
+  // 故不能包一层 {ok:{...}} —— 那样前端读到的是 0)。
+  return r.ok;
+};
+
+// POST /api/visits/reset: 一键清空访问记录(PII 无删除通道的补充, owner-only, PIN 门禁)。
+// Lume 无文件删除内建, 内部用 write_file 重写为空文件等效实现。
+post "/api/visits/reset", (req) => {
+  let gate = nsbp_visit_gate(req);
+  if (gate != null) {
+    return gate;
+  }
+  let r = vis.reset_visits();
+  if (get(r, "err", null) != null) {
+    return { status: 500, error: str(get(r, "err", "清空失败")) };
+  }
+  return { ok: true };
 };
 
 run();

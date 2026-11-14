@@ -1,0 +1,274 @@
+// visits.lume — 访客统计(纯数据端点, 供 cicdkit 平台抓取展示; 应用内不做 UI)
+//
+// 契约: 与 specpulse-lume / tnsbp-lume / lume-crm 一致 ——
+//   POST /api/visit   前端加载时打点(公开)
+//   GET  /api/visits  汇总 {total, today, uv, days, recent}(由 nsbp.lume 的 PIN 门禁把关)
+// cicdkit 的 VisitsBlock 只读这些字段; 数据存 JSONL(与 records.lume 同款模式)。
+// Lume 无文件删除内建, 超长时重写整份文件保留最近 N 行(在 append 路径完成)。
+//
+// 数据落 .data/visits.jsonl(Dockerfile 已 mkdir+chown 给 app 用户; k8s 挂 emptyDir,
+// 裸机 ssh 由 run_args 的 -v /opt/nsbp-lume-data:/app/.data 持久化)。
+
+let VISITS_DIR = ".data";
+let VISITS_FILE = ".data/visits.jsonl";
+let VISITS_MAX = 20000;
+let VISITS_KEEP = 10000;
+let VISITS_DAYS = 14;
+let VISITS_RECENT = 20;
+
+// 读文本; 缺失/读失败 → null
+func read_text_v(path) {
+  let r = try(() => read_file(path));
+  if (get(r, "err", null) != null) { return null; }
+  return get(r, "ok", null);
+}
+
+func ensure_dir_v() {
+  let r = try(() => mkdir(VISITS_DIR));
+  if (get(r, "ok", false) != true) {
+    print("[nsbp-lume] mkdir " + VISITS_DIR + " failed: " + str(get(r, "err", "")));
+  }
+}
+
+// 读全部访问
+func load_visits() {
+  ensure_dir_v();
+  let text = read_text_v(VISITS_FILE);
+  if (text == null) {
+    return { ok: [], err: null };
+  }
+  let lines = split(text, "\n");
+  let out = [];
+  for (let i in range(len(lines))) {
+    let line = lines[i];
+    if (trim(line) == "") { continue; }
+    let j = try(() => json(line));
+    if (get(j, "err", null) == null) {
+      out = push(out, get(j, "ok", null));
+    }
+  }
+  return { ok: out, err: null };
+}
+
+// 私有/回环 IP + 已知爬虫 UA + webdriver → 不计入汇总(原始记录仍保留)
+func is_bot(v) {
+  let ip = trim(str(get(v, "ip", "")));
+  let ua = lower(str(get(v, "ua", "")));
+  let wd = str(get(v, "wd", ""));
+  if (wd == "true") { return true; }
+  if (ip == "" or ip == null) { return false; }
+  if (ip == "127.0.0.1" or ip == "::1" or ip == "0:0:0:0:0:0:0:1") { return true; }
+  if (substr(ip, 0, 3) == "10.") { return true; }
+  if (substr(ip, 0, 8) == "192.168.") { return true; }
+  if (substr(ip, 0, 7) == "172.16." or substr(ip, 0, 7) == "172.17." or substr(ip, 0, 7) == "172.18." or substr(ip, 0, 7) == "172.19." or substr(ip, 0, 7) == "172.30." or substr(ip, 0, 7) == "172.31.") { return true; }
+  if (substr(ip, 0, 8) == "169.254.") { return true; }
+  let bots = ["googlebot", "bingbot", "baiduspider", "yandexbot", "duckduckbot", "petalbot", "bytespider", "semrushbot", "ahrefsbot", "mj12bot", "sogou", "360spider", "gptbot", "chatgpt", "claudebot", "facebookexternalhit", "whatsapp", "telegrambot"];
+  for (let b in bots) {
+    if (contains(ua, str(b))) { return true; }
+  }
+  return false;
+}
+
+// 单条排除规则匹配: 精确 IP(= /32), 或 /8 /16 /24 整八位边界前缀。
+// 不走位运算(Lume 整型位运算不确定), 非整八位边界按向下取整的八位处理。
+func ip_match(ip, rule) {
+  let rs = str(rule);
+  let bits = 32;
+  let parts = split(rs, "/");
+  if (len(parts) == 2) {
+    bits = int(str(get(parts, 1, "32")));
+    rs = str(get(parts, 0, ""));
+  }
+  if (rs == "" or bits >= 32) { return ip == rs; }
+  let want_oct = bits / 8;   // 8→1, 16→2, 24→3; 其余向下取整到八位
+  let ip_oct = split(ip, ".");
+  let ru_oct = split(rs, ".");
+  if (len(ip_oct) != 4 or len(ru_oct) < want_oct or want_oct < 1) { return false; }
+  for (let i in range(want_oct)) {
+    if (ip_oct[i] != ru_oct[i]) { return false; }
+  }
+  return true;
+}
+
+// ip 是否命中排除名单(元素为精确 IP 或 CIDR)。名单空 → 永不命中(行为不变)。
+export func ip_excluded(ip, list) {
+  for (let i in range(len(list))) {
+    let r = str(get(list, i, ""));
+    if (r != "" and ip_match(ip, r)) { return true; }
+  }
+  return false;
+}
+
+// 追加一条访问; 超过 VISITS_MAX 时重写为最近 VISITS_KEEP 行。
+// v: {ip, path, referrer, ua, visitor, wd, created}
+export func record_visit(v) {
+  ensure_dir_v();
+  let text = read_text_v(VISITS_FILE);
+  let out = "";
+  if (text != null) {
+    out = text;
+    if (len(out) > 0 and substr(out, len(out) - 1, 1) != "\n") {
+      out = out + "\n";
+    }
+  }
+  out = out + stringify(v) + "\n";
+  let lines = split(out, "\n");
+  if (len(lines) > VISITS_MAX) {
+    let start = len(lines) - VISITS_KEEP;
+    let tail = [];
+    for (let i in range(VISITS_KEEP)) {
+      tail = push(tail, lines[start + i]);
+    }
+    out = join(tail, "\n") + "\n";
+  }
+  let w = try(() => write_file(VISITS_FILE, out));
+  if (get(w, "err", null) != null) {
+    return { ok: null, err: "写访问记录失败: " + get(w, "err", "") };
+  }
+  return { ok: v, err: null };
+}
+
+// 一键清空访问记录(PIN 门禁下由 /api/visits/reset 调用, owner-only)。
+// Lume 无文件删除内建, 用 write_file 重写为空文件等效实现。
+export func reset_visits() {
+  ensure_dir_v();
+  let w = try(() => write_file(VISITS_FILE, ""));
+  if (get(w, "err", null) != null) {
+    return { ok: false, err: "清空访问记录失败: " + str(get(w, "err", "")) };
+  }
+  return { ok: true, err: null };
+}
+
+// 小工具: 数组是否含元素
+func arr_contains(arr, x) {
+  for (let i in range(len(arr))) {
+    if (arr[i] == x) { return true; }
+  }
+  return false;
+}
+
+// 小工具: 数组去重 push
+func push_unique(arr, x) {
+  if (not arr_contains(arr, x)) {
+    arr = push(arr, x);
+  }
+  return arr;
+}
+
+// 小工具: "YYYY-MM-DD" → 整数 YYYYMMDD(Lume 不支持字符串 >=, 用数值比较过滤天数窗口)
+func day_int(d) {
+  return int(replace(d, "-", ""));
+}
+
+// 同 visitor 在 since_ts 之后的去重探测(防脚本灌水): 扫最近 500 条足够覆盖 60s 窗口。
+export func visit_dupe_since(visitor, since_ts) {
+  let all = load_visits();
+  let recs = get(all, "ok", []);
+  let tail = slice_tail(recs, 500);
+  for (let i in range(len(tail))) {
+    let r = get(tail, i, {});
+    if (str(get(r, "visitor", "")) == str(visitor)) {
+      if (get(r, "created", 0) >= since_ts) { return true; }
+    }
+  }
+  return false;
+}
+
+// 小工具: 取数组尾部 n 个(文件尾部 = 最新)
+func slice_tail(arr, n) {
+  let start = len(arr) - n;
+  if (start < 0) { start = 0; }
+  let out = [];
+  for (let i in range(start, len(arr))) {
+    out = push(out, arr[i]);
+  }
+  return out;
+}
+
+// 格式化时间戳为可读串
+func fmt_ts(ts) {
+  return strftime("%Y-%m-%d %H:%M:%S", ts);
+}
+
+// 汇总(与 cicdkit VisitsBlock 读取字段一一对应):
+// { total, today, uv, days:[{d,pv,uv}], recent:[{t,ip,path,referrer,ua}] }
+// total/uv 只计公网真人(排除 is_bot 与 exclude_list 中的 IP); days/recent 限定最近 VISITS_DAYS 天。
+// exclude_list: 排除 IP 名单(精确 IP 或 CIDR), 命中的记录既不计数也不进 recent。
+export func visits_summary(exclude_list) {
+  let all = load_visits();
+  let recs = get(all, "ok", []);
+  let now_ts = now();
+  let since = now_ts - VISITS_DAYS * 86400;
+  let today_day = strftime("%Y-%m-%d", now_ts);
+
+  // 1) 收集"非 bot 且未被排除"记录, 算 total / today / uv / 按天 pv+uv
+  let good = [];
+  for (let i in range(len(recs))) {
+    let r = get(recs, i, {});
+    if (not is_bot(r) and not ip_excluded(str(get(r, "ip", "")), exclude_list)) {
+      good = push(good, r);
+    }
+  }
+  let total = len(good);
+  let today = 0;
+  let uv = 0;
+  let visitors = [];
+  let days = [];   // {d, pv, uv_arr}
+  for (let i in range(len(good))) {
+    let r = get(good, i, {});
+    let created = get(r, "created", now_ts);
+    let d = strftime("%Y-%m-%d", created);
+    let vis = str(get(r, "visitor", "anon"));
+    if (vis == "" or vis == "null") { vis = "anon"; }
+    visitors = push_unique(visitors, vis);
+    if (d == today_day) { today = today + 1; }
+    // 找该天桶
+    let found = false;
+    for (let k in range(len(days))) {
+      if (get(days, k, {}).d == d) {
+        days[k].pv = get(days, k, {}).pv + 1;
+        days[k].uvs = push_unique(get(days, k, {}).uvs, vis);
+        found = true;
+        break;
+      }
+    }
+    if (not found) {
+      days = push(days, { d: d, pv: 1, uvs: [vis] });
+    }
+  }
+  uv = len(visitors);
+
+  // 2) days 输出: 升序(按字符串 YYYY-MM-DD 天然升序), 只保留在 since 窗口内的
+  let day_out = [];
+  for (let i in range(len(days))) {
+    let dd = days[i];
+    day_out = push(day_out, { d: dd.d, pv: dd.pv, uv: len(get(dd, "uvs", [])) });
+  }
+  // 只留最近 VISITS_DAYS 天(Lume 不支持字符串 >=, 用 day_int 数值比较)
+  let cutoff_int = day_int(strftime("%Y-%m-%d", since));
+  let days_final = [];
+  for (let i in range(len(day_out))) {
+    if (day_int(str(day_out[i].d)) >= cutoff_int) {
+      days_final = push(days_final, day_out[i]);
+    }
+  }
+
+  // 3) recent: 全部记录里 created>=since 的尾部 N 条(含 bot, 便于回溯), 但排除名单命中的 IP 不出现在明细
+  let in_window = [];
+  for (let i in range(len(recs))) {
+    let r = get(recs, i, {});
+    if (get(r, "created", now_ts) >= since) {
+      if (ip_excluded(str(get(r, "ip", "")), exclude_list)) { continue; }
+      in_window = push(in_window, {
+        t: fmt_ts(get(r, "created", now_ts)),
+        ip: str(get(r, "ip", "")),
+        path: str(get(r, "path", "/")),
+        referrer: str(get(r, "referrer", "")),
+        ua: str(get(r, "ua", "")),
+      });
+    }
+  }
+  let recent = slice_tail(in_window, VISITS_RECENT);
+
+  return { ok: { total: total, today: today, uv: uv, days: days_final, recent: recent }, err: null };
+}
