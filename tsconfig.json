@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": false,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "outDir": "./build/ts",
+    "rootDir": "./src",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/component/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@utils": ["./src/utils/index"],
+      "@services/*": ["./src/services/*"],
+      "@styled/*": ["./src/styled/*"],
+      "@store/*": ["./src/store/*"],
+      "@store": ["./src/store/index"],
+      "@reducers/*": ["./src/reducers/*"],
+      "@reducers": ["./src/reducers/index"],
+      "@containers/*": ["./src/containers/*"],
+      "@client/*": ["./src/client/*"],
+      "@css/*": ["./src/css/*"],
+      "@externals/*": ["./src/externals/*"]
+    }
+  },
+  "include": ["src"]
+}

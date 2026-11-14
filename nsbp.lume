@@ -1,0 +1,66 @@
+// nsbp.lume — nsbp-lume 的服务端入口(保留 React SSR + 真用上 Lume 引擎)。
+//
+// 范式对齐 work/lume/lume 里的 examples/react-ssr.lume:
+//
+//   Lume 引擎(C 二进制,内嵌 AgentHTTPD)占有前端 HTTP 端口,做三件事:
+//     1. 页面路由经 react_socket 走 FastCGI relay 到常驻 Node SSR 后端;
+//        react_prefix="/" 表示整段 URL 空间都交给 React 服务端渲染
+//        (/、/photo?dic=… 都出完整 SSR HTML,与 nsbp 真实 UI 一致);
+//     2. 伺服静态资源(docroot=./public):/js/client.mjs、/js/client.css、
+//        图片等;/js、/api、/assets 是 Lume 保留前缀,relay 不吞它们;
+//     3. 自己出 Lume 原生数据端点 /api/health(DSL 路由,map 自动 JSON)。
+//
+//   常驻 Node SSR 后端: node build/server-ssr.cjs ./.data/nsbp-ssr.sock
+//        用 react-dom/server renderToString + StaticRouter + Provider +
+//        ServerStyleSheet + Helmet 真渲染(与 nsbp 服务端同构),并在渲染前
+//        把 photo 数据预取进 store;还亲自出照片数据端点
+//        /getPhotoMenu、/getPhotoWH、/images/…(fs + probe-image-size,
+//        对齐 nsbp 的 Express 处理函数),浏览器拿到 SSR markup 后再水合
+//        (window.context 携带预取态 + BrowserRouter + hydrateRoot)。
+//
+// 启动顺序由 scripts/start.js / docker/entrypoint.sh 编排: 先起 Node 后端 → 再 $LUME nsbp.lume。
+//
+// 端口/绑定/套接字都走 env,便于本地与容器两种跑法:
+//   PORT            HTTP 端口, 省略 → DSL 里默认 10090(>10000)
+//   LUME_BIND       监听地址, 省略 → 127.0.0.1(安全基线); 容器注入 0.0.0.0
+//   SSR_SOCK        Node SSR 后端的 UNIX socket 路径, 省略 → ./.data/nsbp-ssr.sock
+// 注意: `server{}` 只有 `bind`/`port` 键, 没有 `host` 键 —— 旧版的 `host = "127.0.0.1"`
+//       是静默无效的, 真正生效的绑定由 LUME_BIND / 框架默认决定。
+
+let nsbp_sock = env("SSR_SOCK");
+if (nsbp_sock == null) {
+  nsbp_sock = "./.data/nsbp-ssr.sock";
+}
+
+// 监听地址: 读 LUME_BIND env(容器注入 0.0.0.0), 省略 → 127.0.0.1 安全基线。
+let nsbp_bind = env("LUME_BIND");
+if (nsbp_bind == null) {
+  nsbp_bind = "127.0.0.1";
+}
+
+// HTTP 端口: 读 PORT env, 省略 → 10090(>10000, 本仓默认)。
+let nsbp_port_s = env("PORT");
+if (nsbp_port_s == null) {
+  nsbp_port_s = "10090";
+}
+
+server {
+  bind = nsbp_bind;
+  port = int(nsbp_port_s);
+  docroot = "./public";
+  spa = true;                          // 静态兜底(HTML + 静态 404 → index.html)
+  react_socket = nsbp_sock;            // 页面经 FastCGI relay 到常驻 Node SSR 后端
+  react_prefix = "/";                  // 整段 URL 归 React relay(/api、/js、/assets 保留除外)
+  no_directory_listing = true;         // 目录请求 → 404, 不列目录
+};
+
+// ---- Lume 原生数据端点(保留前缀 /api,Lume 自己出,不走 relay)----
+// 照片数据端点 /getPhotoMenu /getPhotoWH /images/* 不在保留名单里,
+// react_prefix="/" 会把它们 relay 到 node SSR 后端(那里用 fs+probe-image-size
+// 真实读取 public/images,对齐 nsbp 的 Express 处理函数)。这里保留一个 Lume
+// DSL 原生端点,证明 Lume 引擎本身也在出数据(map → application/json)。
+get "/api/health", (req) => {
+  return { ok: true, service: "nsbp-lume", ssr: "react+node", front: "lume/agent-httpd" };
+};
+
+run();

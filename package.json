@@ -1,0 +1,67 @@
+{
+  "name": "nsbp-lume",
+  "version": "1.0.0",
+  "description": "React SSR (renderToPipeableStream) served by the Lume engine via FastCGI relay",
+  "homepage": "https://nsbp.erishen.cn",
+  "scripts": {
+    "build": "node scripts/clean.js && node scripts/build-ssr.js",
+    "build:check": "tsc --noEmit",
+    "check": "node scripts/check-lume.js",
+    "start": "node scripts/start.js",
+    "dev": "node scripts/dev.js",
+    "clean": "node scripts/clean.js",
+    "format": "prettier --write **/*.{ts,tsx,js,jsx}",
+    "lint": "eslint src --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint src --ext .ts,.tsx,.js,.jsx --fix"
+  },
+  "keywords": [
+    "react",
+    "ssr",
+    "lume",
+    "agent-httpd",
+    "fastcgi",
+    "esbuild",
+    "styled-components"
+  ],
+  "author": "Erishen Sun",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.11.2",
+    "framer-motion": "^12.25.0",
+    "lodash": "^4.17.21",
+    "probe-image-size": "^7.1.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-helmet": "^6.1.0",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.12.0",
+    "redux": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.15",
+    "@types/node": "^22.20.5",
+    "@types/probe-image-size": "^7.0.0",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-helmet": "^6.1.10",
+    "@types/react-router-dom": "^5.3.3",
+    "autoprefixer": "^10.6.2",
+    "esbuild": "^0.25.0",
+    "less": "^4.9.1",
+    "postcss": "^8.5.32",
+    "sass": "^1.107.1",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@esbuild/linux-x64",
+      "@esbuild/darwin-arm64",
+      "@esbuild/darwin-x64"
+    ]
+  }
+}

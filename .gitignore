@@ -1,0 +1,24 @@
+# runtime artifacts (created by running the Lume engine: $LUME nsbp.lume)
+logs/
+cgi-bin/
+.data/
+.tmpbuild/
+
+# build output (esbuild → public/js) — keep the SPA shell, ignore the bundle
+public/js/
+
+# SSR backend bundle (esbuild → build/server-ssr.cjs)
+build/
+
+# node
+node_modules/
+
+# local tool caches (pnpm / corepack) — machine-local, not for VCS
+.corepack/
+.npm-cache/
+
+# env
+.env
+
+# one-time source patch script (already applied; keep out of VCS)
+.fix.cjs

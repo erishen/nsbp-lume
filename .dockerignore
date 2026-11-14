@@ -1,0 +1,25 @@
+# nsbp-lume — keep the build context lean.
+# The Dockerfile does pnpm install in-stage, so node_modules is excluded.
+node_modules
+**/node_modules
+
+# Local runtime/build outputs are regenerated in the image; don't ship them.
+build
+public/js
+.data
+logs
+cgi-bin
+
+# VCS / local artifacts
+.git
+*.log
+.DS_Store
+
+# .env files (keep a sample if ever added)
+.env
+.env.*
+!.env.example
+
+# Note: docker/ is intentionally NOT ignored — its offline Lume tarball
+# (docker/lume-linux-<arch>-static.tar.gz) is what makes the build work
+# behind a firewall. entrypoint.sh lives there too and is COPYed in.
