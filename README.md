@@ -1,135 +1,178 @@
 # nsbp-lume
 
-**React 服务端渲染(SSR)+ Lume 引擎**,对齐姊妹项目 `lume-crm`
-的标准范式:`work/lume/lume` 里的 `examples/react-ssr.lume` 链路。
+> **English** | [简体中文](README.zh.md)
 
-两个进程,`scripts/start.js` 编排:
+**React server-side rendering (SSR) + the Lume engine**, following the same
+pattern as the sibling project `lume-crm`: the `examples/react-ssr.lume` chain
+in `work/lume/lume`.
 
-1. **常驻 Node React SSR 后端**(`build/server-ssr.cjs`,监听 UNIX socket
-   `./.data/nsbp-ssr.sock`)
-   用 `react-dom/server` 的 `renderToPipeableStream(流式)` + `StaticRouter` + Redux Provider
-   + react-helmet 把每个页面**真渲染成
-   完整 HTML**(与 nsbp 的服务端同构),渲染前把 photo 数据预取进 store,注入
-   `window.context` / `window.query` 供水合。它还亲自出照片数据端点
-   `/getPhotoMenu`、`/getPhotoWH`、`/images/…`(fs + probe-image-size,
-   对齐 nsbp 的 Express 处理函数)。
-2. **Lume 引擎**(`$LUME nsbp.lume`,内嵌 AgentHTTPD,占有 HTTP 端口 `10090`)
-   做三件事:
-   - `react_socket` + `react_prefix = "/"` 把页面路由经 **FastCGI relay** 到
-     Node 后端(`/`、`/photo?dic=…` 都出 SSR HTML,与 nsbp 真实 UI 一致;
-     `/getPhotoMenu`、`/getPhotoWH`、`/images/*` 也 relay 给 Node 后端);
-   - 以 `docroot=./public` 伺服静态资源(`/js/client.mjs` + `/js/client.css`、
-     图片、favicon);`/js`、`/api`、`/assets` 是 Lume 保留前缀,relay 不吞;
-   - 自己出 Lume 原生数据端点 `GET /api/health`(Lume DSL 路由,`/api` 是
-     保留前缀,relay 不吞它,故稳留在 Lume 这边)。
+Two processes, orchestrated by `scripts/start.js`:
 
-> 注:`/login`、`/logout` 在 Lume 引擎 C 层被硬编码为**保留路径**
-> (AgentHTTPD 自带 session 登录门),`react_prefix="/"` 时不归 React relay、
-> 由引擎接管 —— 这是引擎行为,DSL 层改不掉。nsbp 的登录页因此无法经 relay
-> 出 SSR;Home/Photo 两页与 nsbp 完全一致。
+1. **Resident Node React SSR backend** (`build/server-ssr.cjs`, listening on a
+   UNIX socket `./.data/nsbp-ssr.sock`).
+   It uses `react-dom/server`'s `renderToPipeableStream` (streaming) +
+   `StaticRouter` + Redux Provider + `react-helmet` to **genuinely render each
+   page into complete HTML** (isomorphic with nsbp's server), prefetching photo
+   data into the store before rendering and injecting `window.context` /
+   `window.query` for hydration. It also serves the photo data endpoints
+   `/getPhotoMenu`, `/getPhotoWH`, `/images/...` directly (fs +
+   `probe-image-size`, aligned with nsbp's Express handlers).
+2. **Lume engine** (`$LUME nsbp.lume`, embeds AgentHTTPD, owns HTTP port
+   `10090`), which does three things:
+   - `react_socket` + `react_prefix = "/"` relays page routes to the Node
+     backend over **FastCGI** (`/`, `/photo?dic=...` all emit SSR HTML,
+     matching nsbp's real UI; `/getPhotoMenu`, `/getPhotoWH`, `/images/*` are
+     also relayed to the Node backend);
+   - serves static assets from `docroot=./public` (`/js/client.mjs` +
+     `/js/client.css`, images, favicons); `/js`, `/api`, `/assets` are Lume
+     reserved prefixes and are not swallowed by the relay;
+   - serves the Lume-native data endpoint `GET /api/health` (Lume DSL route;
+     `/api` is a reserved prefix the relay won't take, so it stays with Lume).
 
-客户端拿到 SSR markup 后用 `BrowserRouter` + `hydrateRoot` 水合,交互接管。
+> Note: `/login` and `/logout` are hard-coded **reserved paths** in the Lume
+> engine's C layer (AgentHTTPD ships a session login gate), so with
+> `react_prefix="/"` they are not handled by the React relay but by the engine —
+> this is engine behaviour, not configurable at the DSL level. nsbp's login
+> page therefore cannot be SSR'd through the relay; the Home/Photo pages are
+> fully identical to nsbp.
 
-> 模型澄清: Lume **不是**能 `import` 进 Node 的 JS 模块。本地 `work/lume/lume`
-> 是 C 引擎,编译出 `lume` 二进制(AgentHTTPD);`lume-core` 那棵树甚至不带内嵌
-> server。所以"用上 Lume"= 这个二进制当 HTTP 服务器 + DSL 数据路由,React SSR
-> 后端经它 `react_socket` relay,而不是在 Node 里 `import "lume-core"`。
+On the client, the SSR markup is hydrated with `BrowserRouter` + `hydrateRoot`
+to take over interactivity.
 
-## 布局
+> Model clarification: Lume is **not** a JS module you can `import` into Node.
+> The local `work/lume/lume` is the C engine that compiles to a `lume` binary
+> (AgentHTTPD); the `lume-core` tree doesn't even ship an embedded server. So
+> "using Lume" means using that binary as the HTTP server + DSL data routing,
+> with the React SSR backend relayed through its `react_socket` — not
+> `import "lume-core"` inside Node.
 
-- `nsbp.lume` — Lume 服务端:`server{ bind, port, react_socket, react_prefix="/", docroot=public, spa }`
-  + `GET /api/health` Lume DSL 原生路由 + `run()`。
-- `src/server-ssr/main.tsx` — 常驻 Node SSR 后端(FCGI socket 服务端 +
-  `renderToPipeableStream`(shell 先行两相流式)+ `StaticRouter` + Provider + Helmet + 预取 store(样式已静态化:Tailwind 构建期出 `/js/client.css`,SSR 只 link,不再运行时收样式)。照片区是 **Suspense 数据边界**(`src/services/suspense.ts` 的 `use()` hooks):服务端挂起 → shell 先冲到浏览器、照片内容后流;客户端有预取态 → 同步值,水合不闪。测试用 `NSBP_SUSPENSE_DELAY_MS` 注入延迟可观察两相。
-  数据端点 /getPhotoMenu /getPhotoWH /images/…)。**构建后**为 `build/server-ssr.cjs`。
-- `src/server-data/photo.ts` — 照片库数据层(fs + probe-image-size,移植自 nsbp 的
-  src/server/photo.ts,去 Express)。
-- `src/client/index.tsx` — 浏览器水合入口(Theme + Redux Provider + BrowserRouter +
-  `hydrateRoot`,读 `window.context`)。**构建后**为 `public/js/client.mjs` + `client.css`。
-- `src/Routers.tsx` + `src/containers/`(Home/Login/Photo)+ `src/component/`(Header/Layout/Theme)
-  + `src/styled/`(普通组件工厂 stx + Tailwind 类名,视觉在 `src/css/tailwind.css`)+ `src/store`/`src/reducers`/`src/services`/`src/utils`
-  — 从 nsbp 原样移植的真实 UI(去掉 @loadable/axios)。
-- `scripts/` — `clean.js` / `build-ssr.js`(esbuild 打后端 + 客户端)/
-  `check-lume.js`(Lume 类型检查)/ `dev.js` / `start.js`(起后端再起 Lume)。
-- `Makefile` — 本地 `check` / `build` / `run` / `dev` / `clean`,以及
-  `docker-build` / `docker-up` / `docker-down`。
+## Layout
+
+- `nsbp.lume` — Lume server config: `server{ bind, port, react_socket, react_prefix="/", docroot=public, spa }`
+  + `GET /api/health` Lume DSL native route + `run()`.
+- `src/server-ssr/main.tsx` — Resident Node SSR backend (FCGI socket server +
+  `renderToPipeableStream` two-phase shell-first streaming + `StaticRouter` +
+  Provider + Helmet + prefetched store; styles are static: Tailwind emits
+  `/js/client.css` at build time, SSR only links it, no runtime style
+  collection). The photo area is a **Suspense data boundary** (`use()` hooks in
+  `src/services/suspense.ts`): on the server it suspends so the shell reaches
+  the browser first and the photo content streams after; on the client the
+  prefetched state yields a synchronous value, so hydration doesn't flash.
+  Inject `NSBP_SUSPENSE_DELAY_MS` to observe the two phases. Also serves the
+  data endpoints `/getPhotoMenu`, `/getPhotoWH`, `/images/...`. **Builds to**
+  `build/server-ssr.cjs`.
+- `src/server-data/photo.ts` — Photo library data layer (fs +
+  `probe-image-size`, ported from nsbp's `src/server/photo.ts`, Express removed).
+- `src/client/index.tsx` — Browser hydration entry (Theme + Redux Provider +
+  BrowserRouter + `hydrateRoot`, reads `window.context`). **Builds to**
+  `public/js/client.mjs` + `client.css`.
+- `src/Routers.tsx` + `src/containers/` (Home/Login/Photo) +
+  `src/component/` (Header/Layout/Theme) + `src/styled/` (plain component
+  factory `stx` + Tailwind class names, visuals in `src/css/tailwind.css`) +
+  `src/store`/`src/reducers`/`src/services`/`src/utils` — the real UI ported
+  verbatim from nsbp (`@loadable`/axios removed).
+- `scripts/` — `clean.js` / `build-ssr.js` (esbuild for backend + client) /
+  `check-lume.js` (Lume type check) / `dev.js` / `start.js` (start backend then
+  Lume).
+- `Makefile` — local `check` / `build` / `run` / `dev` / `clean`, plus
+  `docker-build` / `docker-up` / `docker-down`.
 - `Dockerfile` + `docker/entrypoint.sh` + `docker/lume-linux-x64-static.tar.gz`
-  — 多阶段镜像:node 打 SSR+客户端 → 取 static Lume 二进制 → alpine+nodejs 运行。
-- `docker-compose.yml` — 一条命令起容器(默认 `127.0.0.1:10090`)。
+  — multi-stage image: Node builds SSR/client → pulls the static Lume binary →
+  runs on alpine + nodejs.
+- `docker-compose.yml` — one-command container startup (default
+  `127.0.0.1:10090`).
 
-## 本地运行
+## Local development
 
 ```
-pnpm install      # 或 npm install(依赖:react/redux/helmet/framer-motion/probe-image-size;样式 Tailwind 3 + postcss + less/sass)
+pnpm install      # or npm install (deps: react/redux/helmet/framer-motion/probe-image-size; styles: Tailwind 3 + postcss + less/sass)
 pnpm build        # esbuild → build/server-ssr.cjs + public/js/client.mjs + client.css
-pnpm start        # 起 Node SSR 后端 + $LUME nsbp.lume → http://127.0.0.1:10090
-# 或 pnpm dev:clean + build + start 一条龙
-# 停:make stop(读 .data/start.pids;或直接 Ctrl-C 停 start.js)
+pnpm start        # start Node SSR backend + $LUME nsbp.lume → http://127.0.0.1:10090
+# or: pnpm dev:clean + build + start all-in-one
+# stop: make stop (reads .data/start.pids; or Ctrl-C on start.js)
 ```
 
-`start.js` 解析 Lume 二进制:`LUME` 环境变量 → `~/.local/bin/lume`(release)→
-相对项目 `../../../work/lume/lume/bin/lume`(源码树)。Node 后端默认用系统 `node`
-(可 `NODE` 环境变量覆盖;桌面环境里 `~/.local/share/TeleAgent/runtimes/node/bin/node`)。
-端口由 `PORT` 环境变量控制,默认 `10090`。
+`start.js` resolves the Lume binary: the `LUME` env var → `~/.local/bin/lume`
+(release) → project-relative `../../../work/lume/lume/bin/lume` (source tree).
+The Node backend uses the system `node` by default (overridable via the `NODE`
+env var; in desktop environments
+`~/.local/share/TeleAgent/runtimes/node/bin/node`). The port is controlled by
+the `PORT` env var, default `10090`.
 
-**自愈(防 502)**:`start.js` 启动时会先杀掉陈旧的 SSR 后端 / Lume 前端
-(`pgrep -f server-ssr.cjs` / `lume nsbp.lume` + `kill -9`)、删掉残留 socket、
-等 socket 真正就绪再拉 Lume 前端 —— 保证任意时刻只有一对干净的后端/前端,
-避免「前端在、后端 socket 没了」导致的 502。杀不掉(无权限)或端口被占时,
-退出提示会给出终端里手动清理的命令。
+**Self-healing (anti-502):** on startup `start.js` first kills any stale SSR
+backend / Lume front (`pgrep -f server-ssr.cjs` / `lume nsbp.lume` + `kill -9`),
+removes the leftover socket, and only starts the Lume front once the socket is
+really ready — guaranteeing exactly one clean backend/front pair at any time,
+avoiding "front up, backend socket gone" 502s. If it can't kill (no permission)
+or the port is taken, it prints manual cleanup commands for the terminal.
 
-## Docker(端口 >10000)
+## Docker (port >10000)
 
-镜像三阶段(见 `Dockerfile`):node 打 SSR/客户端 → 取 **static** Lume 二进制
-(`docker/lume-linux-x64-static.tar.gz` 离线可用,否则按 `LUME_VERSION` 从 GitHub
-拉取)→ alpine + `nodejs` apk 跑常驻 SSR 后端,Lume 在 `0.0.0.0:10090` 做前端
-(`entrypoint.sh` 先起 node 后端等 socket,再起 Lume)。
+Three-stage image (see `Dockerfile`): Node builds SSR/client → pulls the
+**static** Lume binary (the offline
+`docker/lume-linux-x64-static.tar.gz` works, otherwise fetched from GitHub per
+`LUME_VERSION`) → alpine + `nodejs` apk runs the resident SSR backend, with
+Lume as the front on `0.0.0.0:10090` (`entrypoint.sh` starts the Node backend
+first, waits for the socket, then starts Lume).
 
 ```
-# 构建(离线可构建:上下文自带 docker/lume-linux-x64-static.tar.gz)
-make docker-build            # 或 docker build -t nsbp-lume .
+# Build (offline-capable: the context ships docker/lume-linux-x64-static.tar.gz)
+make docker-build            # or docker build -t nsbp-lume .
 
-# 起容器(宿主 127.0.0.1:10090 → 容器 :10090)
-make docker-up               # 或 docker compose up -d
-curl http://127.0.0.1:10090/api/health         # Lume DSL 原生数据端点
-curl http://127.0.0.1:10090/getPhotoMenu        # Node 后端照片端点(fs+probe-image-size)
-curl http://127.0.0.1:10090/                   # SSR HTML(#root 内有 React markup + window.context)
+# Start container (host 127.0.0.1:10090 → container :10090)
+make docker-up               # or docker compose up -d
+curl http://127.0.0.1:10090/api/health         # Lume DSL native data endpoint
+curl http://127.0.0.1:10090/getPhotoMenu        # Node backend photo endpoint (fs+probe-image-size)
+curl http://127.0.0.1:10090/                   # SSR HTML (#root has React markup + window.context)
 
-make docker-down             # 停并移除容器
+make docker-down             # stop and remove the container
 ```
 
-宿主端口默认 `10090`(>10000),可用 `HOST_PORT` 覆盖:
-`HOST_PORT=10090 make docker-up`。镜像默认绑 `127.0.0.1`;要放开给其它网卡,
-把 `docker-compose.yml` 里 `127.0.0.1:${HOST_PORT:-10090}` 改成 `${HOST_PORT:-10090}`。
+The host port defaults to `10090` (>10000), overridable with `HOST_PORT`:
+`HOST_PORT=10090 make docker-up`. The image binds to `127.0.0.1` by default; to
+expose it on other interfaces, change
+`127.0.0.1:${HOST_PORT:-10090}` to `${HOST_PORT:-10090}` in
+`docker-compose.yml`.
 
-> 说明:本机未安装 docker,无法在此构建/运行;上述文件按可在 docker 宿主上
-> 直接构建运行来写。Lume 需 `v0.8.0+`(支持 `react_prefix`),仓库离线 tarball
-> 即满足。
+> Note: Docker is not installed on the author's machine, so this can't be built
+> or run locally; the files are written to build and run directly on a Docker
+> host. Lume needs `v0.8.0+` (which supports `react_prefix`); the repo's offline
+> tarball satisfies this.
 
-## 已验证路由(真实 `nsbp.lume` 端到端)
+## Verified routes (real `nsbp.lume` end-to-end)
 
-- `GET /` — **SSR**(与 nsbp Home 一致):helmet title/meta + 静态 `/js/client.css`
-  (Tailwind 构建期展开)在 head,`window.context` 携带预取的 photo 菜单,body 内为
-  Layout 初始态,HTTP 200 `text/html`。
-- `GET /photo?dic=test` — **SSR**(与 nsbp Photo 一致):helmet title=Photo +
-  预取宽高数据(样式走静态 client.css)。
+- `GET /` — **SSR** (identical to nsbp Home): helmet title/meta + static
+  `/js/client.css` (Tailwind expanded at build time) in the head, `window.context`
+  carries the prefetched photo menu, body holds the initial Layout state, HTTP
+  200 `text/html`.
+- `GET /photo?dic=test` — **SSR** (identical to nsbp Photo): helmet title=Photo +
+  prefetched width/height data (styles via static client.css).
 - `GET /getPhotoMenu` / `GET /getPhotoWH?dic=test` / `GET /images/test/0.jpg` —
-  Node 后端数据端点(经 relay),返回 `{"data":[...]}` / 图片原始字节。
-- `GET /api/health` — Lume DSL 原生路由,`{"ok":true,...}`,`application/json`。
-- `GET /js/client.mjs` + `/js/client.css` — 静态 hydration bundle + 提取样式。
-- `GET /login` — Lume 引擎 C 层保留路径(AgentHTTPD session 门),不由 React relay。
+  Node backend data endpoints (via relay), returning `{"data":[...]}` / raw
+  image bytes.
+- `GET /api/health` — Lume DSL native route, `{"ok":true,...}`,
+  `application/json`.
+- `GET /js/client.mjs` + `/js/client.css` — static hydration bundle + extracted
+  styles.
+- `GET /login` — Lume engine C-layer reserved path (AgentHTTPD session gate),
+  not handled by the React relay.
 
+## `ssr` parameter (first-paint mode; legacy `nsbp` compatible)
 
-## `ssr` 参数(首屏呈现模式; 旧 `nsbp` 兼容)
-
-| URL | 行为 |
+| URL | Behaviour |
 |---|---|
-| 省略 / `?ssr=1` | **SSR 默认**:首屏直接展示服务端渲染好的内容(不闪 Loading) |
-| `?ssr=0` | 显式**动画/客户端数据模式**:先播 `Loading` 再展开;Photo 页在客户端重新取数 |
-| 旧 `?nsbp=0` / `?nsbp=1` | **仍可读**(读取时 `ssr` 优先、回退 `nsbp`);新链接一律写 `ssr=` |
+| omitted / `?ssr=1` | **SSR default**: first paint shows server-rendered content directly (no Loading flash) |
+| `?ssr=0` | explicit **animation/client-data mode**: plays `Loading` first, then expands; the Photo page refetches on the client |
+| legacy `?nsbp=0` / `?nsbp=1` | **still readable** (`ssr` takes precedence, falls back to `nsbp`); new links always write `ssr=` |
 
-> 参数规范名已从 `nsbp` 改为语义更直白的 `ssr`;旧项目分享出的 `nsbp=` 链接不失效
-> (`utils/index.ts` 的 `getSSRParam()` 做 `ssr`→`nsbp` 回退,生成新链接写 `ssr=`)。
-> 页面文档始终是 Node SSR 渲染的(`ssr=0` 也不会变 CSR 文档);"纯 CSR"只发生在
-> 后端未起、直接打开静态兜底页的退化情形。Suspense 照片数据边界与该参数正交。
+> The canonical param name changed from `nsbp` to the plainer `ssr`; links shared
+> from the old project with `nsbp=` still work (`getSSRParam()` in
+> `utils/index.ts` falls back `ssr`→`nsbp`, new links write `ssr=`). The page
+> document is always Node SSR rendered (`ssr=0` doesn't turn it into a CSR
+> document); "pure CSR" only happens in the degraded case where the backend
+> isn't up and the static fallback page opens directly. The Suspense photo data
+> boundary is orthogonal to this parameter.
 
+## License
+
+[MIT](LICENSE)
