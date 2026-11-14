@@ -192,6 +192,12 @@ function SuspendedCarousel() {
       <div className="demo4">
         <motion.div
           className="demo4-inner"
+          // 显式给容器尺寸: framer-motion 的 animate 不会写入 SSR 标记,
+          // 而 .demo4-inner 在 CSS 里 overflow:hidden 且无 height, 子图又全是
+          // position:absolute —— 不写这里, 水合前/无 JS 时容器高度塌陷为 0,
+          // 整条轮播被裁掉(图片"不显示")。style 与 animate 同值, 水合无闪烁;
+          // 切图时 currHeight/currWidth 变化, animate 照常过渡。
+          style={{ height: currHeight, width: currWidth }}
           animate={{ height: currHeight, width: currWidth }}
           transition={springSettings}
         >
