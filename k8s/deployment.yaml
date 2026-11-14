@@ -1,0 +1,70 @@
+# nsbp-lume 应用（本地 k3s 闭环）。与 lume-crm / lume-invest 同模式：
+# 平台 Pipeline 会把最新构建的 nsbp-lume:<tag> 镜像 kubectl set-image 覆盖，
+# 镜像用 nsbp-lume:local 占位 + IfNotPresent（纯本地，绝不外网 pull；
+# OrbStack 的 k3s 自动共享 docker 镜像，无需 ctr import）。
+#
+# nsbp-lume 是只读照片展示应用（无写 API、无登录态），无需 LLM/鉴权 Secret。
+# 照片库在 public/images，构建期 bake 进镜像（.dockerignore 不排除 public/images），
+# 运行时只读；/app/.data 仅放 SSR UNIX socket（临时），emptyDir 即可。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nsbp-lume
+  labels:
+    app: nsbp-lume
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nsbp-lume
+  template:
+    metadata:
+      labels:
+        app: nsbp-lume
+    spec:
+      containers:
+        - name: nsbp-lume
+          # 镜像 CMD 即 entrypoint.sh（先起 node SSR 后端，再起 lume 前端），
+          # k8s 侧无需覆盖。
+          image: nsbp-lume:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 10090
+          env:
+            # k8s pod 需监听所有接口（NodePort 从 pod 网络栈访问 pod IP）；
+            # 暴露面由 NodePort 本地绑定控制。
+            - name: LUME_BIND
+              value: "0.0.0.0"
+            - name: PORT
+              value: "10090"
+            - name: SSR_SOCK
+              value: "/app/.data/nsbp-ssr.sock"
+          volumeMounts:
+            - name: data
+              mountPath: /app/.data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+# NodePort：本地 k3s 单节点下节点即 localhost，探针可经 localhost:<nodePort> 直达
+# （平台服务探测按 Service 自身 app=<部署名> 标签查找可达地址）。
+apiVersion: v1
+kind: Service
+metadata:
+  name: nsbp-lume
+  labels:
+    app: nsbp-lume
+spec:
+  type: NodePort
+  selector:
+    app: nsbp-lume
+  ports:
+    - port: 10090
+      targetPort: 10090
