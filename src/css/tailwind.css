@@ -116,34 +116,117 @@ a:hover {
   color: green;
 }
 
-/* ---- photo.ts（原 @styled/photo） ---- */
+/* ---- photo.ts（原 @styled/photo） ----
+ * 图片页做成深色相册画廊：内容区整块深色底(盖住全局紫色渐变), 居中布局,
+ * 菜单项胶囊、控制按钮、轮播相框。 */
+/* 让包裹它的 layout-container 在图片页去掉双重 margin, 深色底铺满视口 */
+.layout-container:has(.photo-container) {
+  margin: 0;
+}
 .photo-container {
   display: flex;
   flex: 1;
   flex-direction: column;
   justify-content: flex-start;
-  align-items: flex-start;
-  margin: 20px;
+  align-items: center;
+  width: 100%;
+  min-height: calc(100vh - 61px); /* 铺满 header 之下的视口, 盖住 body 紫色渐变 */
+  background: linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%);
+  background-attachment: fixed;
+  margin: 0;
+  padding: 2.5rem 1.5rem 4rem;
+  color: #e2e8f0;
 }
+/* 菜单胶囊(分类) */
+.photo-row.photo-menu {
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-bottom: 1.25rem;
+}
+.photo-row.photo-menu a {
+  padding: 0.4rem 1.1rem;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 999px;
+  color: #c7d2fe;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+.photo-row.photo-menu a:hover {
+  background: rgba(99, 102, 241, 0.38);
+  border-color: rgba(129, 140, 248, 0.75);
+  color: #ffffff;
+}
+/* "Scroll Me" 提示 */
+.photo-row.photo-hint {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  padding-bottom: 1.25rem;
+}
+/* 控制条(上一张 / 滑块 / 下一张) */
+.photo-row.photo-controls {
+  justify-content: center;
+  gap: 1rem;
+  padding-bottom: 1.5rem;
+}
+.photo-row.photo-controls button {
+  background: #6366f1;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  transition: all 0.2s ease;
+}
+.photo-row.photo-controls button:hover {
+  background: #818cf8;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
+}
+.photo-row.photo-controls button:active {
+  transform: translateY(0);
+}
+.photo-row.photo-controls input[type="range"] {
+  flex: 0 1 380px;
+  min-width: 120px;
+  accent-color: #6366f1;
+}
+/* 轮播相框 */
 .photo-container .demo4 {
   display: flex;
   align-items: center;
-  height: 700px;
+  justify-content: center;
+  width: 100%;
+  min-height: 52vh;
+  height: auto;
   position: relative;
+  margin-top: 0.5rem;
 }
 .photo-container .demo4 .demo4-inner {
   overflow: hidden;
   position: relative;
   margin: auto;
+  border-radius: 14px;
+  background: #0b1020;
+  box-shadow:
+    0 25px 60px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .photo-container .demo4 .demo4-inner .demo4-photo {
   position: absolute;
-  background-color: lightgray;
+  background-color: #0b1020;
 }
 .photo-suspense-fallback {
   display: block;
   padding: 0.5rem 0;
-  color: #6b7280;
+  color: #94a3b8;
   font-size: 0.9rem;
   opacity: 0.75;
 }
@@ -157,9 +240,6 @@ a:hover {
   word-break: break-all;
   overflow: hidden;
   padding-bottom: 10px;
-}
-.photo-row a {
-  padding-right: 10px;
 }
 
 /* ---- header.ts（原 @styled/component/header） ---- */
@@ -417,19 +497,23 @@ a:hover {
   margin-right: auto;
 }
 .stat-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0.16)
+  );
   backdrop-filter: blur(20px);
   padding: 1.75rem;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.42);
   text-align: center;
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   overflow: hidden;
   max-width: 100%;
   position: relative;
   box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    0 6px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 .stat-card::before {
   content: "";

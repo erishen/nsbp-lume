@@ -76,7 +76,7 @@ const Photo = ({ query, menu: _legacyMenu, getPhotoMenu }: PhotoProps) => {
           >
             <SuspendedMenuRow withSSR={withSSR} />
           </Suspense>
-          <Row>Scroll Me</Row>
+          <Row className="photo-hint">Scroll Me</Row>
           {/* 轮播区：尺寸数据也走 Suspense 边界，服务端流式、客户端即时。 */}
           <Suspense
             fallback={
@@ -100,7 +100,7 @@ function SuspendedMenuRow({ withSSR }: { withSSR: (u: string) => string }) {
     return null
   }
   return (
-    <Row>
+    <Row className="photo-menu">
       {_.map(menu, (item: { name: string }, index: number) => {
         return (
           <Link key={`menu${index}`} to={withSSR(`/photo?dic=${item.name}`)}>
@@ -178,7 +178,7 @@ function SuspendedCarousel() {
   // 避免 Suspense 解析后的 hydration mismatch。
   return (
     <Fragment>
-      <Row>
+      <Row className="photo-controls">
         <button onClick={() => clickHandler('')}>Previous</button>
         <input
           type="range"
