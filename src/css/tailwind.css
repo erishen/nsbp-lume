@@ -801,13 +801,19 @@ a:hover {
   transform: scaleX(1);
 }
 .card-icon {
-  font-size: 3rem;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 1.25rem;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.2));
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.14),
+    rgba(118, 75, 162, 0.14)
+  );
+  border-radius: 14px;
+  filter: drop-shadow(0 2px 6px rgba(102, 126, 234, 0.25));
 }
 .card-title {
   font-size: 1.3rem;

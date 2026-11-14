@@ -5,6 +5,15 @@ import { Helmet } from 'react-helmet'
 import { isSEO, usePreserveSSR } from '@/utils'
 import { usePhotoMenu } from '@services/suspense'
 import {
+  FeatureIconGradient,
+  IconBolt,
+  IconCog,
+  IconNetwork,
+  IconAtom,
+  IconBraces,
+  IconImage,
+} from '@components/FeatureIcons'
+import {
   GlobalStyle,
   PageWrapper,
   HeroSection,
@@ -122,6 +131,8 @@ const Home: React.FC = () => {
 
       <Layout query={{}}>
         <PageWrapper>
+          {/* 特性卡片共享的渐变定义（SVG defs，一次渲染，各图标引用） */}
+          <FeatureIconGradient />
           {/* ========================================
               Hero Section - 首屏视觉冲击
               ======================================== */}
@@ -197,7 +208,7 @@ const Home: React.FC = () => {
 
             <FeatureGrid>
               <FeatureCard>
-                <CardIcon>⚡</CardIcon>
+                <CardIcon><IconBolt /></CardIcon>
                 <CardTitle>极速服务端渲染</CardTitle>
                 <CardDescription>
                   服务端渲染 HTML，SEO 友好，首屏秒开
@@ -215,7 +226,7 @@ export default [
               </FeatureCard>
 
               <FeatureCard>
-                <CardIcon>🔧</CardIcon>
+                <CardIcon><IconCog /></CardIcon>
                 <CardTitle>Lume C 引擎做前端</CardTitle>
                 <CardDescription>
                   内嵌 AgentHTTPD，DSL 配 server 路由与 relay
@@ -230,7 +241,7 @@ server {
               </FeatureCard>
 
               <FeatureCard>
-                <CardIcon>📦</CardIcon>
+                <CardIcon><IconNetwork /></CardIcon>
                 <CardTitle>FastCGI relay SSR</CardTitle>
                 <CardDescription>
                   页面经 UNIX socket relay 给常驻 Node 后端渲染
@@ -241,7 +252,7 @@ server {
               </FeatureCard>
 
               <FeatureCard>
-                <CardIcon>🧩</CardIcon>
+                <CardIcon><IconAtom /></CardIcon>
                 <CardTitle>React 19 原生支持</CardTitle>
                 <CardDescription>
                   利用最新 React 特性，性能和开发体验提升
@@ -255,7 +266,7 @@ import { use, useTransition } from 'react'
               </FeatureCard>
 
               <FeatureCard>
-                <CardIcon>📝</CardIcon>
+                <CardIcon><IconBraces /></CardIcon>
                 <CardTitle>TypeScript 类型安全</CardTitle>
                 <CardDescription>
                   完整的类型推断，编译时错误检查
@@ -268,7 +279,7 @@ import { use, useTransition } from 'react'
               </FeatureCard>
 
               <FeatureCard>
-                <CardIcon>🖼️</CardIcon>
+                <CardIcon><IconImage /></CardIcon>
                 <CardTitle>照片数据 + Lume 端点</CardTitle>
                 <CardDescription>Node 出 /getPhotoMenu 与 /images，Lume 出 /api/health</CardDescription>
                 <CodeExample>{`// Lume DSL 原生端点（保留前缀 /api）
