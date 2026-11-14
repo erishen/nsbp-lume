@@ -100,30 +100,35 @@ function resolveWH(dic: string): Promise<PhotoWH> {
   });
 }
 
-// Photo menu (category list). Client: sync from the preloaded store; server /
-// cold: suspend.
+// Photo menu (category list). Client + server: sync from the preloaded store
+// (the SSR backend prefetches it into the store in buildStore before render),
+// so the menu renders in the page shell — no hidden Suspense template, visible
+// even before hydration / with JS disabled. Cold client (no preload) / server
+// without data: suspend.
 export function usePhotoMenu(): PhotoMenu {
   const store = useStore() as Store;
   const pre = menuOf(store.getState());
-  if (typeof window !== "undefined" && pre && pre.length > 0) {
+  if (pre && pre.length > 0) {
     return pre; // hydrate-safe, no suspend
   }
   const ref = useRef<{ p?: Promise<PhotoMenu> }>({});
   if (!ref.current.p) ref.current.p = resolveMenu();
-  return use(ref.current.p); // server (window undefined) -> suspends
+  return use(ref.current.p); // cold client (no preload) -> suspends
 }
 
-// Photo width/height for a category. Client: sync from the preloaded store;
-// server / cold: suspend.
+// Photo width/height for a category. Client + server: sync from the preloaded
+// store (buildStore prefetches getPhotoWH(dic).data), so the carousel renders
+// in the shell — visible before hydration / with JS disabled. Cold client (no
+// preload): fetch + suspend.
 export function usePhotoDimensions(dic: string): PhotoWH {
   const store = useStore() as Store;
   const pre = whOf(store.getState());
-  if (typeof window !== "undefined" && pre && pre.length > 0) {
+  if (pre && pre.length > 0) {
     return pre; // hydrate-safe, no suspend
   }
   const ref = useRef<{ key?: string; p?: Promise<PhotoWH> }>({});
   // key by dic: navigating to another category re-suspends with a fresh
   // promise for that category (server streams it; cold client fetches it).
   if (ref.current.key !== dic) ref.current = { key: dic, p: resolveWH(dic) };
-  return use(ref.current.p); // server (window undefined) -> suspends
+  return use(ref.current.p); // cold client (no preload) -> suspends
 }
