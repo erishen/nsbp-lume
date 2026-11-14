@@ -14,12 +14,20 @@ export const FeatureIconGradient = () => (
     focusable="false"
   >
     <defs>
+      {/* gradientUnits="userSpaceOnUse" + 0..24 coords: each icon's viewBox is
+          0 0 24 24, so the gradient spans the whole icon. objectBoundingBox
+          (the default) FAILS to paint on degenerate-bbox elements — e.g. the
+          perfectly axis-aligned <line>s of the sliders icon (zero width OR
+          height) — because their bounding box has no area, so the gradient is
+          undefined and the stroke renders nothing. userSpaceOnUse is evaluated
+          in the icon's user coordinate system, so it paints every element. */}
       <linearGradient
         id="nsbp-feature-icon-grad"
-        x1="0%"
-        y1="0%"
-        x2="100%"
-        y2="100%"
+        gradientUnits="userSpaceOnUse"
+        x1="0"
+        y1="0"
+        x2="24"
+        y2="24"
       >
         <stop offset="0%" stopColor="#667eea" />
         <stop offset="100%" stopColor="#764ba2" />
@@ -103,5 +111,48 @@ export const IconImage = (p: IconProps) => (
     <rect x="3" y="3" width="18" height="18" rx="2" />
     <circle cx="9" cy="9" r="2" />
     <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+  </Svg>
+);
+
+// ── Hero 特性卡（Light / Flex / TS / SSR）──────
+// 轻量高效 — feather
+export const IconFeather = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+    <line x1="16" y1="8" x2="2" y2="22" />
+    <line x1="17.5" y1="15" x2="9" y2="15" />
+  </Svg>
+);
+
+// 灵活配置 — sliders
+export const IconSliders = (p: IconProps) => (
+  <Svg {...p}>
+    <line x1="4" y1="21" x2="4" y2="14" />
+    <line x1="4" y1="10" x2="4" y2="3" />
+    <line x1="12" y1="21" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12" y2="3" />
+    <line x1="20" y1="21" x2="20" y2="16" />
+    <line x1="20" y1="12" x2="20" y2="3" />
+    <line x1="2" y1="14" x2="6" y2="14" />
+    <line x1="10" y1="8" x2="14" y2="8" />
+    <line x1="18" y1="16" x2="22" y2="16" />
+  </Svg>
+);
+
+// 类型安全 — shield-check
+export const IconShield = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    <path d="m9 12 2 2 4-4" />
+  </Svg>
+);
+
+// 服务端渲染 — server rack
+export const IconServer = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2" y="2" width="20" height="8" rx="2" />
+    <rect x="2" y="14" width="20" height="8" rx="2" />
+    <line x1="6" y1="6" x2="6.01" y2="6" />
+    <line x1="6" y1="18" x2="6.01" y2="18" />
   </Svg>
 );

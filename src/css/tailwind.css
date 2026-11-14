@@ -700,6 +700,24 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+/* Hero 特性卡图标底框：白色圆角 + 渐变描边图标(与 feature-card 呼应, 在紫色渐变上更清晰) */
+.hero-stat-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.96),
+    rgba(255, 255, 255, 0.82)
+  );
+  border-radius: 16px;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
 
 /* 技术特性 */
 .tech-section {

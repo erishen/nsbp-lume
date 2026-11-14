@@ -12,6 +12,10 @@ import {
   IconAtom,
   IconBraces,
   IconImage,
+  IconFeather,
+  IconSliders,
+  IconShield,
+  IconServer,
 } from '@components/FeatureIcons'
 import {
   GlobalStyle,
@@ -23,7 +27,6 @@ import {
   HeroBadge,
   HeroStats,
   StatCard,
-  StatValue,
   StatLabel,
   TechSection,
   SectionHeader,
@@ -168,19 +171,27 @@ const Home: React.FC = () => {
 
               <HeroStats>
                 <StatCard>
-                  <StatValue>Light</StatValue>
+                  <div className="hero-stat-icon">
+                    <IconFeather size={32} />
+                  </div>
                   <StatLabel>轻量高效</StatLabel>
                 </StatCard>
                 <StatCard>
-                  <StatValue>Flex</StatValue>
+                  <div className="hero-stat-icon">
+                    <IconSliders size={32} />
+                  </div>
                   <StatLabel>灵活配置</StatLabel>
                 </StatCard>
                 <StatCard>
-                  <StatValue>TS</StatValue>
+                  <div className="hero-stat-icon">
+                    <IconShield size={32} />
+                  </div>
                   <StatLabel>类型安全</StatLabel>
                 </StatCard>
                 <StatCard>
-                  <StatValue>SSR</StatValue>
+                  <div className="hero-stat-icon">
+                    <IconServer size={32} />
+                  </div>
                   <StatLabel>服务端渲染</StatLabel>
                 </StatCard>
               </HeroStats>
