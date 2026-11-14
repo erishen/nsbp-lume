@@ -18,7 +18,7 @@ export default [
     key: "home",
   },
   {
-    path: "/login",
+    path: "/signin",
     element: <Login />,
     key: "login",
   },

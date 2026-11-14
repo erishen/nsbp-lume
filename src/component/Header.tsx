@@ -24,8 +24,8 @@ const Header = () => {
         <Link to="/">
           <NavLink $active={location.pathname === '/'}>🏠 首页</NavLink>
         </Link>
-        <Link to="/login">
-          <NavLink $active={location.pathname === '/login'}>🔐 登录</NavLink>
+        <Link to="/signin">
+          <NavLink $active={location.pathname === '/signin'}>🔐 登录</NavLink>
         </Link>
         <Link to="/photo">
           <NavLink $active={location.pathname === '/photo'}>🖼️ 图片</NavLink>
