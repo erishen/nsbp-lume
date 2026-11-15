@@ -18,6 +18,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import net from "node:net";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +52,25 @@ function resolveNode() {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A UNIX socket file can exist while nobody is listening on it — that is
+// exactly the state a dead backend leaves behind. Existence answers "true";
+// only a successful connect answers "ready".
+function canConnect(path, timeoutMs = 250) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const probe = net.connect(path);
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      probe.destroy();
+      resolve(ok);
+    };
+    probe.once("connect", () => done(true));
+    probe.once("error", () => done(false));
+    setTimeout(() => done(false), timeoutMs);
+  });
+}
+
 const lume = resolveLume();
 const node = resolveNode();
 const sock = process.env.SSR_SOCK || join(root, ".data/nsbp-ssr.sock");
@@ -82,7 +102,14 @@ function killStale() {
   }
   if (pids.size > 0) {
     console.log(`==> killing stale processes: ${[...pids].join(" ")}`);
-    spawnSync("kill", ["-9", ...[...pids]]); // may EPERM; ignore
+    const killResult = spawnSync("kill", ["-9", ...[...pids]]);
+    // EPERM is tolerated, but never silent: if the kill did not take, the
+    // stale process still holds the socket and the next bind will fail.
+    if (killResult.status !== 0) {
+      console.warn(
+        `[start] kill -9 exited ${killResult.status}: stale pids may still hold ${sock}`
+      );
+    }
   }
 }
 
@@ -90,8 +117,12 @@ await killStale();
 await wait(400);
 try {
   unlinkSync(sock); // stale socket left by a dead backend
-} catch {
-  /* none */
+} catch (err) {
+  // ENOENT means nothing to clean; anything else means the stale socket is
+  // still on disk and the readiness probe below has to cope with it.
+  if (err?.code !== "ENOENT") {
+    console.warn(`[start] stale socket not removed: ${err?.code ?? err?.message}`);
+  }
 }
 
 // The Lume front reads SSR_SOCK / PORT from the environment (nsbp.lume uses
@@ -143,10 +174,13 @@ const backend = spawn(node, [backendBin, sock], {
 });
 backend.on("error", (e) => console.error("[ssr] spawn error:", e.message));
 
-// Wait for the FCGI socket to actually exist (up to 5s) — the front must
-// never start relaying before the backend is listening.
+// Wait until the FCGI socket actually accepts a connection (up to 5s) —
+// the front must never start relaying before the backend is listening.
+// The predicate is a connection, not `existsSync`: a socket file left by a
+// dead backend also reports "exists", and the front would then relay page
+// routes into a void (every route 502 while static assets stay fine).
 let waited = 0;
-while (!existsSync(sock)) {
+while (!(await canConnect(sock))) {
   if (backend.exitCode !== null) {
     console.error("SSR backend exited early; not starting Lume front.");
     clearPids();
@@ -161,6 +195,9 @@ while (!existsSync(sock)) {
   await wait(100);
   waited += 100;
 }
+// Written only after a connection succeeded, so a zombie socket can no
+// longer produce this line while the backend is still starting up.
+console.log(`==> FCGI socket ready after ${waited}ms: ${sock}`);
 
 // 2) Start the Lume front (owns the HTTP port, relays to the socket).
 const front = spawn(lume, ["nsbp.lume"], {
