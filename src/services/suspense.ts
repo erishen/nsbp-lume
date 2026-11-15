@@ -1,134 +1,102 @@
-// Suspense data boundaries for the photo sections (React 19 `use`).
+// Photo data hooks — store-first, no Suspense `use()`.
 //
-// The point of these hooks is to give `renderToPipeableStream` a *genuine*
-// streaming boundary:
+// The SSR backend (server-ssr/main.tsx) prefetches each route's data into the
+// Redux store (buildStore runs route.loadData → GET_PHOTO_MENU /
+// GET_PHOTO_WIDTH_HEIGHT) and injects it as window.context. So:
 //
-//   SERVER  -> the hook suspends (returns a promise). `renderToPipeableStream`
-//              flushes the page shell (header/nav + section frames) first,
-//              then streams the photo content once the promise settles. The
-//              promise resolves IN-PROCESS via the registry main.tsx installs
-//              (setServerResolvers), so no self-HTTP is involved.
+//   SERVER           -> reads the prefetched store: the menu / carousel render
+//                       synchronously in the page shell (visible even before
+//                       hydration / with JS disabled — no hidden <div hidden>
+//                       Suspense templates).
 //
-//   CLIENT  -> the store was preloaded from window.context (buildStore
-//              preseed), so the hook returns the value synchronously: no
-//              re-suspend, no flash, and the markup matches the server's
-//              resolved content exactly (clean hydration).
+//   CLIENT (hydrate) -> window.context seeds the store, so the first client
+//                       render matches the SSR markup exactly (no flash).
 //
-//   COLD CLIENT (opened with no SSR backend / no preload) -> the hook fetches
-//              the data endpoints and suspends until the value arrives.
-
-import { use, useRef } from "react";
-import { useStore } from "react-redux";
-import type { Store } from "redux";
+//   CLIENT (navigate)-> React Router swaps the route WITHOUT re-running the
+//                       server prefetch, so the store can be empty for the new
+//                       route (e.g. home → /photo). The hook subscribes via
+//                       useSelector and fetches + dispatches in an effect; the
+//                       store update re-renders the carousel once the data
+//                       lands. This is the path that used to hang forever:
+//                       the old `use()` Suspense boundary never recovered after
+//                       a client-side navigation (the "加载图片..." fallback
+//                       stayed on screen with 0 images).
+import { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { GET_PHOTO_MENU, GET_PHOTO_WIDTH_HEIGHT } from "@store/constants";
 
 export type PhotoMenu = Array<{ name: string; cover?: string; count?: number }>;
 export type PhotoWH = [number, number, string][];
 
+// Kept for the SSR backend (server-ssr/main.tsx), which registers in-process
+// resolvers. The hooks no longer `use()` them (the client can't rely on the
+// Suspense `use()` recovering after a route transition), but the export
+// signature is unchanged so the server bundle still compiles.
 export interface NSBPResolvers {
   photoMenu?: () => Promise<PhotoMenu>;
   photoWH?: (dic: string) => Promise<PhotoWH>;
 }
-
-// Module-level registry. The SSR backend bundle (main.tsx) installs it at
-// startup so the server's `use()` promises resolve in-process. The client
-// bundle never sets it (main.tsx is not part of it), so the client path reads
-// the preloaded store / fetches instead.
 let serverResolvers: NSBPResolvers | undefined;
 export function setServerResolvers(r: NSBPResolvers): void {
   serverResolvers = r;
 }
 
-const menuOf = (state: { photo?: { menu?: unknown } }): PhotoMenu | null =>
-  Array.isArray(state?.photo?.menu)
-    ? (state.photo!.menu as PhotoMenu)
-    : null;
-const whOf = (state: { photo?: { data?: unknown } }): PhotoWH | null =>
-  Array.isArray(state?.photo?.data) ? (state.photo!.data as PhotoWH) : null;
-
-// Optional artificial settle delay so the shell visibly flushes before the
-// content (demonstrates the streaming). 0 by default = correct, no fake
-// latency; set NSBP_SUSPENSE_DELAY_MS in tests to observe the two-phase stream.
-// Browser-safe read: "process" only exists in the SSR (node/CJS) bundle. On
-// the browser ESM bundle it is undefined, so default the delay to 0 there
-// (real streaming is driven by the Suspense boundary, not a fake sleep). Only
-// the server can set NSBP_SUSPENSE_DELAY_MS to observe the two-phase stream.
-const SUSPENSE_DELAY_MS =
-  typeof process !== "undefined" && process.env
-    ? Number(process.env.NSBP_SUSPENSE_DELAY_MS || 0)
-    : 0;
-
-function resolveMenu(): Promise<PhotoMenu> {
-  return new Promise((resolve) => {
-    const settle = () => {
-      if (serverResolvers?.photoMenu) {
-        serverResolvers
-          .photoMenu()
-          .then((v) => resolve(v))
-          .catch(() => resolve([]));
-      } else if (typeof window !== "undefined") {
-        // cold client: fetch the data endpoint (relayed by Lume to node).
-        fetch("/getPhotoMenu")
-          .then((res) => (res.ok ? res.json() : null))
-          .then((j) => resolve(((j?.data as PhotoMenu) || [])))
-          .catch(() => resolve([]));
-      } else {
-        resolve([]);
-      }
-    };
-    SUSPENSE_DELAY_MS > 0 ? setTimeout(settle, SUSPENSE_DELAY_MS) : settle();
-  });
+interface RootState {
+  photo?: { data?: unknown; menu?: unknown };
 }
 
-function resolveWH(dic: string): Promise<PhotoWH> {
-  return new Promise((resolve) => {
-    const settle = () => {
-      if (serverResolvers?.photoWH) {
-        serverResolvers
-          .photoWH(dic)
-          .then((v) => resolve(v))
-          .catch(() => resolve([]));
-      } else if (typeof window !== "undefined") {
-        fetch("/getPhotoWH?dic=" + encodeURIComponent(dic))
-          .then((res) => (res.ok ? res.json() : null))
-          .then((j) => resolve(((j?.data as PhotoWH) || [])))
-          .catch(() => resolve([]));
-      } else {
-        resolve([]);
-      }
-    };
-    SUSPENSE_DELAY_MS > 0 ? setTimeout(settle, SUSPENSE_DELAY_MS) : settle();
-  });
-}
+const arr = <T,>(v: unknown): T[] | null =>
+  Array.isArray(v) ? (v as T[]) : null;
 
-// Photo menu (category list). Client + server: sync from the preloaded store
-// (the SSR backend prefetches it into the store in buildStore before render),
-// so the menu renders in the page shell — no hidden Suspense template, visible
-// even before hydration / with JS disabled. Cold client (no preload) / server
-// without data: suspend.
+// Category menu. Store-first (prefetched on the server / seeded from
+// window.context); on the client an empty menu is fetched and dispatched so
+// the subscription re-renders when it lands.
 export function usePhotoMenu(): PhotoMenu {
-  const store = useStore() as Store;
-  const pre = menuOf(store.getState());
-  if (pre && pre.length > 0) {
-    return pre; // hydrate-safe, no suspend
-  }
-  const ref = useRef<{ p?: Promise<PhotoMenu> }>({});
-  if (!ref.current.p) ref.current.p = resolveMenu();
-  return use(ref.current.p); // cold client (no preload) -> suspends
+  const menu = useSelector((s: RootState) => s.photo?.menu);
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const m = arr<unknown>(menu);
+    if (!m || m.length === 0) {
+      fetch("/getPhotoMenu")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((j) => {
+          const got = arr<unknown>((j as { data?: unknown } | null)?.data);
+          if (got && got.length > 0) {
+            dispatch({ type: GET_PHOTO_MENU, menu: got });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [menu, dispatch]);
+
+  return arr<{ name: string; cover?: string; count?: number }>(menu) || [];
 }
 
-// Photo width/height for a category. Client + server: sync from the preloaded
-// store (buildStore prefetches getPhotoWH(dic).data), so the carousel renders
-// in the shell — visible before hydration / with JS disabled. Cold client (no
-// preload): fetch + suspend.
+// Photo width/height for a category. Same store-first pattern: the SSR backend
+// prefetches getPhotoWH(dic) into the store, so the carousel renders in the
+// shell; on client-side navigation the store is empty, so we fetch + dispatch
+// (useSelector re-renders when the data lands) instead of suspending forever.
 export function usePhotoDimensions(dic: string): PhotoWH {
-  const store = useStore() as Store;
-  const pre = whOf(store.getState());
-  if (pre && pre.length > 0) {
-    return pre; // hydrate-safe, no suspend
-  }
-  const ref = useRef<{ key?: string; p?: Promise<PhotoWH> }>({});
-  // key by dic: navigating to another category re-suspends with a fresh
-  // promise for that category (server streams it; cold client fetches it).
-  if (ref.current.key !== dic) ref.current = { key: dic, p: resolveWH(dic) };
-  return use(ref.current.p); // cold client (no preload) -> suspends
+  const data = useSelector((s: RootState) => s.photo?.data);
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const d = arr<unknown>(data);
+    if (!d || d.length === 0) {
+      fetch("/getPhotoWH?dic=" + encodeURIComponent(dic))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((j) => {
+          const got = arr<unknown>((j as { data?: unknown } | null)?.data);
+          if (got && got.length > 0) {
+            dispatch({ type: GET_PHOTO_WIDTH_HEIGHT, data: got });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [dic, data, dispatch]);
+
+  return arr<[number, number, string]>(data) || [];
 }
