@@ -16,7 +16,7 @@ interface LayoutProps {
 //
 // 规范参数名是 ssr; 旧项目分享出去的 nsbp= 链接保持可读(query 里两个键都可能有,
 // 优先 ssr)。默认值 1 对 hydration 安全: 服务端与客户端对同一份 query
-// (SSR 注入的 window.context.state.query) 算出相同的初值。
+// (SSR 注入的 __NSBP_CONTEXT__ JSON 块里的 state.query) 算出相同的初值。
 const Layout = ({ children, query }: LayoutProps) => {
   const mode =
     query !== undefined && query !== null ? query.ssr ?? query.nsbp : undefined

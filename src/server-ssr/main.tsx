@@ -16,14 +16,12 @@
 //   2. Page routes (full React SSR):
 //        StaticRouter + Provider + Theme + Helmet, with the
 //        store prefetched in-process before the first render (so Home/Photo
-//      first-paint already has the photo menu / dimensions). Uses
-//      renderToPipeableStream: head (helmet title/meta + static /js/client.css
-//      link, Tailwind pipeline) then streamed React chunks then the
-//      window.context tail; the assembled document feeds the ISR cache.
-//
-//      The serialized store state is injected as window.context (state + query)
-//      so the client's hydrateRoot picks it up (client/index.tsx reads
-//      window.context.state) and the layout / isSEO behaviour match nsbp.
+//        first-paint already has the photo menu / dimensions). Uses
+//        renderToPipeableStream: head (helmet title/meta + static /js/client.css
+//        link, Tailwind pipeline) then streamed React chunks then the
+//        __NSBP_CONTEXT__ JSON data block; the assembled document feeds the ISR
+//        cache. The block is NOT inline JS (script-src 'self' stays strict) —
+//        the client reads it to seed its Redux store (see client/index.tsx).
 //
 // Run:  <node> build/server-ssr.cjs <sock-path>   (produced by scripts/build-ssr.js)
 
@@ -233,8 +231,28 @@ function respondFull(sock: net.Socket, reqId: number, statusLine: string, header
 // docHead carries everything that must precede the streamed body markup:
 // doctype, static head meta, the helmet-rendered title/meta, and the static
 // /js/client.css link (Tailwind pipeline, built once). docTail carries the
-// window.context / window.query injection + the client bundle script so
-// hydrateRoot reads the prefetched state.
+// prefetched state as a JSON <script type="application/json"> data block (NOT
+// inline JS — so the Content-Security-Policy can stay strict, script-src
+// 'self', no 'unsafe-inline') + the client bundle script for hydrateRoot.
+// --- Content-Security-Policy (defense in depth) ------------------------------
+// The only scripts are /js/client.mjs (self) and the JSON data block (not
+// executed), so script-src needs no 'unsafe-inline'. style-src 'unsafe-inline'
+// is required: React SSR + framer-motion emit inline style attributes.
+// img-src data: is the carousel's placeholder (1x1 transparent PNG).
+// connect-src 'self' covers fetch(/getPhotoWH, /getPhotoMenu, /api/visit).
+// frame-ancestors 'none' is the CSP form of X-Frame-Options: DENY.
+const CSP_HEADER =
+  "Content-Security-Policy: default-src 'self'; " +
+  "script-src 'self'; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; " +
+  "font-src 'self'; " +
+  "connect-src 'self'; " +
+  "object-src 'none'; " +
+  "base-uri 'self'; " +
+  "form-action 'self'; " +
+  "frame-ancestors 'none'\r\n";
+
 function safeScriptJson(o: unknown): string {
   return JSON.stringify(o).replace(/</g, "\\u003c");
 }
@@ -259,11 +277,15 @@ function docHead(helmet: ReturnType<typeof Helmet.renderStatic>): string {
   );
 }
 
-function docTail(state: unknown, query: Record<string, string>): string {
+// Prefetched state is carried as a JSON data block (script-src 'self' stays
+// strict — no inline JS, no 'unsafe-inline' for scripts). type=application/json
+// is not executed by the browser, so CSP does not need to allow it.
+function docTail(state: unknown): string {
   return (
     "</div>\n" +
-    '<script>window.context = { state: ' + safeScriptJson(state) + ' };\n' +
-    "window.query = " + safeScriptJson(query) + ";</script>\n" +
+    '<script type="application/json" id="__NSBP_CONTEXT__">' +
+    safeScriptJson({ state }) +
+    "</script>\n" +
     '<script type="module" src="/js/client.mjs"></script>\n' +
     "</body>\n</html>\n"
   );
@@ -327,6 +349,7 @@ function renderPageStream(
     "Content-Type: text/html; charset=utf-8\r\n" +
     "Date: " + new Date().toUTCString() + "\r\n" +
     "X-Content-Type-Options: nosniff\r\n" +
+    CSP_HEADER +
     "Cache-Control: no-store\r\n" +
     "X-Frame-Options: DENY\r\n" +
     "X-ISR: miss\r\n" +
@@ -347,7 +370,7 @@ function renderPageStream(
         if (!settled) {
           settled = true;
           const helmet = capturedHelmet ?? Helmet.renderStatic();
-          const tail = docTail(store.getState(), queryMap);
+          const tail = docTail(store.getState());
           const head = docHead(helmet);
           // Cache the assembled document. If head was already flushed live,
           // the cache holds only the body + tail for the hit path to re-emit
@@ -503,7 +526,7 @@ async function handleRequest(sock: net.Socket, reqId: number, params: Params, bo
       "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n",
       "",
       cached,
-      "Cache-Control: no-store\r\nX-Frame-Options: DENY\r\nX-ISR: hit\r\n"
+      "Cache-Control: no-store\r\nX-Frame-Options: DENY\r\n" + CSP_HEADER + "X-ISR: hit\r\n"
     );
     return;
   }

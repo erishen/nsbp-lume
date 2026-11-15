@@ -2,14 +2,15 @@
 //
 // The SSR backend (server-ssr/main.tsx) prefetches each route's data into the
 // Redux store (buildStore runs route.loadData → GET_PHOTO_MENU /
-// GET_PHOTO_WIDTH_HEIGHT) and injects it as window.context. So:
+// GET_PHOTO_WIDTH_HEIGHT) and injects it as a __NSBP_CONTEXT__ JSON data block.
+// So:
 //
 //   SERVER           -> reads the prefetched store: the menu / carousel render
 //                       synchronously in the page shell (visible even before
 //                       hydration / with JS disabled — no hidden <div hidden>
 //                       Suspense templates).
 //
-//   CLIENT (hydrate) -> window.context seeds the store, so the first client
+//   CLIENT (hydrate) -> the JSON block seeds the store, so the first client
 //                       render matches the SSR markup exactly (no flash).
 //
 //   CLIENT (navigate)-> React Router swaps the route WITHOUT re-running the
@@ -48,9 +49,9 @@ interface RootState {
 const arr = <T,>(v: unknown): T[] | null =>
   Array.isArray(v) ? (v as T[]) : null;
 
-// Category menu. Store-first (prefetched on the server / seeded from
-// window.context); on the client an empty menu is fetched and dispatched so
-// the subscription re-renders when it lands.
+// Category menu. Store-first (prefetched on the server / seeded from the
+// __NSBP_CONTEXT__ JSON block); on the client an empty menu is fetched and
+// dispatched so the subscription re-renders when it lands.
 export function usePhotoMenu(): PhotoMenu {
   const menu = useSelector((s: RootState) => s.photo?.menu);
   const dispatch = useDispatch();

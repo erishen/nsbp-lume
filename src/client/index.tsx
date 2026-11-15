@@ -1,11 +1,12 @@
 // Client hydration entry (bundled to public/js/client.mjs).
 //
 // Mirrors nsbp's client entry (Theme + Redux Provider + BrowserRouter +
-// hydrateRoot) but reads the state the node SSR backend injected as
-// window.context. The Lume engine relays page routes to the resident node SSR
-// backend, which renders the shared route tree (StaticRouter) and injects
-// window.context (+ optional window.__NSBP_SSR__). If #root already has
-// markup we hydrate; otherwise we mount fresh (opened without the backend).
+// hydrateRoot) but reads the state the node SSR backend injected as a
+// <script type="application/json" id="__NSBP_CONTEXT__"> data block. The Lume
+// engine relays page routes to the resident node SSR backend, which renders
+// the shared route tree (StaticRouter) and injects the prefetched state. If
+// #root already has markup we hydrate; otherwise we mount fresh (opened
+// without the backend).
 
 import React, { useMemo } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
@@ -19,12 +20,26 @@ import "../css/tailwind.css";
 import getStore from "@store";
 import routers from "../Routers";
 
+// Read the server-prefetched state from the JSON data block. Kept out of the
+// render path so a malformed / missing block degrades to a fresh store instead
+// of crashing hydration.
+function readPrefetchedState(): { state?: Record<string, unknown> } | null {
+  try {
+    const el = document.getElementById("__NSBP_CONTEXT__");
+    if (!el) return null;
+    return JSON.parse(el.textContent || "null") as { state?: Record<string, unknown> } | null;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const store = useMemo(() => {
     // Seed the store from server-prefetched state so the first client render
     // matches the SSR markup exactly (no flicker / refetch on mount).
-    if (window.context && window.context.state) {
-      return getStore(window.context.state);
+    const ctx = readPrefetchedState();
+    if (ctx && ctx.state) {
+      return getStore(ctx.state);
     }
     return getStore();
   }, []);

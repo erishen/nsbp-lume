@@ -15,12 +15,9 @@
 
 import { build } from "esbuild";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, dirname, extname } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import less from "less";
 
-import { spawnSync } from "node:child_process";
-import * as sass from "sass";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import autoprefixer from "autoprefixer";
@@ -71,34 +68,6 @@ const pathAlias = {
   },
 };
 
-// Compile Less/Sass to CSS so the client bundle carries real styles.
-const preCss = {
-  name: "preprocess-css",
-  setup(b) {
-    b.onResolve({ filter: /\.(less|sass|scss)$/ }, (args) => ({
-      path: args.path.startsWith(".")
-        ? new URL(args.path, "file://" + dirname(args.importer) + "/").pathname
-        : args.path,
-      namespace: "pre-css",
-    }));
-    b.onLoad({ filter: /\.(less|sass|scss)$/ }, async (args) => {
-      const src = readFileSync(args.path, "utf8");
-      const ext = extname(args.path);
-      let css;
-      if (ext === ".less") {
-        css = (await less.render(src, { filename: args.path })).css;
-      } else {
-        // .scss -> "scss" syntax; .sass -> "indented" syntax (dart-sass).
-        css = sass.compileString(src, {
-          syntax: ext === ".sass" ? "indented" : "scss",
-          filename: args.path,
-        }).css;
-      }
-      return { contents: css, loader: "css", resolveDir: dirname(args.path) };
-    });
-  },
-};
-
 // Stub CSS/LESS/SASS/SCSS for the node bundle (styles ship as static CSS; the
 // server only links /js/client.css in <head>). The client build does NOT use
 // this - it extracts CSS + runs Tailwind.
@@ -145,7 +114,7 @@ await build({
   jsx: "automatic",
   sourcemap: true,
   legalComments: "inline",
-  plugins: [pathAlias, preCss],
+  plugins: [pathAlias],
   // Minify the client bundle: esbuild's define turns process.env.NODE_ENV
   // into '"production"', and only minification's dead-code folding removes
   // the dev branches. React 19.3's checkDCE() self-check fires at runtime if

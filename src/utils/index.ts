@@ -64,27 +64,4 @@ export const removeSSRParam = (url: string): string => {
   return urlObj.pathname + urlObj.search
 }
 
-/**
- * 保留 handleLink 作为向后兼容（旧 API 名），行为与 appendSSRParam 相同。
- * @deprecated 使用 appendSSRParam 替代
- */
-export const handleLink = (link: string): string => appendSSRParam(link)
-
-/**
- * @deprecated 旧参数名读取，等价于 getSSRParam（ssr 优先, nsbp 回退）。
- */
-export const getNSBPParam = (): string => getSSRParam()
-
-/**
- * @deprecated 旧函数名；实际写入规范参数 ssr=。
- */
-export const appendNSBPParam = (url: string, value?: string): string =>
-  appendSSRParam(url, value)
-
-/**
- * @deprecated 旧函数名，等价于 removeSSRParam。
- */
-export const removeNSBPParam = (url: string): string => removeSSRParam(url)
-
-export { usePreserveNSBP } from './usePreserveNSBP'
 export { usePreserveSSR } from './usePreserveSSR'
