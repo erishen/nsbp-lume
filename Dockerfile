@@ -60,7 +60,7 @@ RUN node scripts/build-ssr.js \
 #    context; it is used in place of a GitHub download.
 # ---------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM alpine:3.23 AS lume
-ARG LUME_VERSION=v0.12.2
+ARG LUME_VERSION=v0.13.1
 ARG LUME_REPO=erishen/lume
 ARG TARGETARCH
 ARG APK_MIRROR=https://mirrors.aliyun.com/alpine
