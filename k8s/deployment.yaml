@@ -39,6 +39,17 @@ spec:
               value: "10090"
             - name: SSR_SOCK
               value: "/app/.data/nsbp-ssr.sock"
+            # 访客统计 PIN + 排除名单（自己/运维 IP 不计数）。
+            # 与 cicdkit SSH target 的 run_args 保持同值，保证 k3s 与 SSH 部署口径一致。
+            # PIN 明文放 Secret(nsbp-visit/pin)，不进 git。创建：
+            #   kubectl create secret generic nsbp-visit --from-literal=pin=<PIN>
+            - name: NSBP_VISIT_PIN
+              valueFrom:
+                secretKeyRef:
+                  name: nsbp-visit
+                  key: pin
+            - name: NSBP_VISIT_EXCLUDE_IPS
+              value: "101.87.156.69,101.87.131.159"
           volumeMounts:
             - name: data
               mountPath: /app/.data
